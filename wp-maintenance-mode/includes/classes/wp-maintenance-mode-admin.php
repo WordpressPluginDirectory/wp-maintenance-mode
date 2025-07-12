@@ -59,6 +59,7 @@ if ( ! class_exists( 'WP_Maintenance_Mode_Admin' ) ) {
 			add_action( 'wp_ajax_wpmm_reset_settings', array( $this, 'reset_plugin_settings' ) );
 			add_action( 'wp_ajax_wpmm_select_page', array( $this, 'select_page' ) );
 			add_action( 'wp_ajax_wpmm_insert_template', array( $this, 'insert_template' ) );
+			add_action( 'wp_ajax_wpmm_skip_insert_template', array( $this, 'skip_insert_template' ) );
 			add_action( 'wp_ajax_wpmm_skip_wizard', array( $this, 'skip_wizard' ) );
 			add_action( 'wp_ajax_wpmm_subscribe', array( $this, 'subscribe_newsletter' ) );
 			add_action( 'wp_ajax_wpmm_change_template_category', array( $this, 'change_template_category' ) );
@@ -76,6 +77,8 @@ if ( ! class_exists( 'WP_Maintenance_Mode_Admin' ) ) {
 
 			// Display custom page state
 			add_filter( 'display_post_states', array( $this, 'add_display_post_states' ), 10, 2 );
+
+			add_filter( 'themeisle_sdk_blackfriday_data', array( $this, 'add_black_friday_data' ) );
 		}
 
 		/**
@@ -235,6 +238,8 @@ if ( ! class_exists( 'WP_Maintenance_Mode_Admin' ) ) {
 
 					wp_add_inline_script( 'code-editor', sprintf( 'jQuery(function ($) { var custom_css_editor = wp.codeEditor.initialize("other_custom_css", %s); $("body").on("show_design_tab_content", function () { custom_css_editor.codemirror.refresh(); }); });', wp_json_encode( $settings ) ) );
 				}
+
+				do_action( 'themeisle_internal_page', WPMM_PRODUCT_SLUG, 'dashboard' );
 			}
 
 			// For global actions like dismiss notices
@@ -688,10 +693,6 @@ if ( ! class_exists( 'WP_Maintenance_Mode_Admin' ) ) {
 		 * @return void
 		 */
 		public function insert_template() {
-			if ( ! is_plugin_active( 'otter-blocks/otter-blocks.php' ) ) {
-				wp_send_json_error( array( 'error' => 'Otter Blocks is not activated' ) );
-			}
-
 			// check nonce existence
 			if ( empty( $_POST['_wpnonce'] ) ) {
 				die( esc_html__( 'The nonce field must not be empty.', 'wp-maintenance-mode' ) );
@@ -743,6 +744,26 @@ if ( ! class_exists( 'WP_Maintenance_Mode_Admin' ) ) {
 			update_option( 'wpmm_page_category', $category );
 			update_option( 'wpmm_settings', $this->plugin_settings );
 			wp_send_json_success( array( 'pageEditURL' => get_edit_post_link( $page_id ) ) );
+		}
+
+		/**
+		 * Skip importing a template.
+		 *
+		 * @return void
+		 */
+		public function skip_insert_template() {
+			// check nonce existence
+			if ( empty( $_POST['_wpnonce'] ) ) {
+				die( esc_html__( 'The nonce field must not be empty.', 'wp-maintenance-mode' ) );
+			}
+
+			// check nonce validation
+			if ( ! wp_verify_nonce( $_POST['_wpnonce'], 'wizard' ) ) {
+				die( esc_html__( 'Security check.', 'wp-maintenance-mode' ) );
+			}
+
+			update_option( 'wpmm_fresh_install', false );
+			wp_send_json_success();
 		}
 
 		/**
@@ -1291,6 +1312,32 @@ if ( ! class_exists( 'WP_Maintenance_Mode_Admin' ) ) {
 				}
 			</style>
 			<?php
+		}
+
+		/**
+		 * Add Black Friday data.
+		 *
+		 * @param array $configs The configuration array for the loaded products.
+		 *
+		 * @return array
+		 */
+		public function add_black_friday_data( $configs ) {
+			$config = $configs['default'];
+
+			// translators: %1$s - plugin namce, %2$s - HTML tag, %3$s - discount, %4$s - HTML tag, %5$s - company name.
+			$message_template = __( 'Brought to you by the team behind %1$s— our biggest sale of the year is here: %2$sup to %3$s OFF%4$s on premium products from %5$s! Limited-time only.', 'wp-maintenance-mode' );
+
+			$config['message']  = sprintf( $message_template, 'WP Maintenance Mode', '<strong>', '70%', '</strong>', '<strong>Themeisle</strong>' );
+			$config['sale_url'] = add_query_arg(
+				array(
+					'utm_term' => 'free',
+				),
+				tsdk_translate_link( tsdk_utmify( 'https://themeisle.link/all-bf', 'bfcm', 'wp-maintenance-mode' ) )
+			);
+
+			$configs[ WPMM_PRODUCT_SLUG ] = $config;
+
+			return $configs;
 		}
 	}
 }
